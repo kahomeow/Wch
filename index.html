@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Lunch 巴士到站時間表</title>
+  <title>黃竹坑 ↔ 銅鑼灣 巴士到站時間表</title>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -17,6 +17,7 @@
       align-items: center;
       min-height: 100vh;
     }
+
     .card {
       background: white;
       width: 100%;
@@ -113,58 +114,13 @@
     .primary-eta { font-size: 15px; font-weight: bold; color: #2b6cb0; }
     .secondary-eta { font-size: 11px; color: #718096; margin-top: 3px; }
     .status-msg { text-align: center; padding: 24px; color: #718096; font-size: 14px; }
-
-    /* 底部偵測工具區塊樣式 */
-    .debug-section {
-      background: #ffffff;
-      border-radius: 16px;
-      border: 2px dashed #e60012;
-      padding: 16px;
-      width: 100%;
-      max-width: 480px;
-      margin-top: 10px;
-    }
-    .debug-title {
-      font-size: 15px;
-      font-weight: bold;
-      color: #e60012;
-      text-align: center;
-      margin-bottom: 12px;
-    }
-    .debug-sub-title {
-      font-size: 13px;
-      font-weight: bold;
-      background: #ffebee;
-      color: #c62828;
-      padding: 4px 8px;
-      margin: 10px 0 6px 0;
-      border-radius: 4px;
-    }
-    .debug-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px;
-      border-bottom: 1px solid #eee;
-      font-size: 13px;
-    }
-    .debug-row.highlight {
-      background: #fff3e0;
-      border-left: 4px solid #ff9800;
-      font-weight: bold;
-    }
-    .stop-id-tag {
-      font-family: monospace;
-      color: #e60012;
-      font-weight: bold;
-    }
   </style>
 </head>
 <body>
 
   <div class="card">
     <div class="header">
-      <h1>Lunch 巴士到站時間表</h1>
+      <h1>黃竹坑 ↔ 銅鑼灣 巴士到站時間表</h1>
       <p>📍 選擇巴士站觀測全路線到站時間</p>
 
       <div class="select-container">
@@ -184,16 +140,10 @@
     </div>
   </div>
 
-  <!-- 底部 112 號線九巴雙向站號掃描器 -->
-  <div class="debug-section">
-    <div class="debug-title">🔍 九巴 112 雙向全線站號掃描</div>
-    <div id="kmb112Debug">正在獲取九巴 112 路線車站...</div>
-  </div>
-
   <script>
     const TARGET_STOPS = [
       { id: '002439', kmbId: '', name: '銅鑼灣 - 希慎廣場, 軒尼詩道' },
-      { id: '002404', kmbId: '', name: '堅拿道巴士專用線' },
+      { id: '002404', kmbId: 'B17A07239E3E576E', name: '堅拿道巴士專用線' },
       { id: '002383', kmbId: 'AE4E8F82AD65348C', name: '業興街, 黃竹坑道' }
     ];
 
@@ -203,6 +153,7 @@
       '592', '671', '671X', '973', 'A17', 'N72', 'N122'
     ];
 
+    // 抓取城巴 ETA
     async function fetchCtbEta(stopId, route) {
       try {
         const res = await fetch(`https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/${stopId}/${route}`);
@@ -218,6 +169,7 @@
       }
     }
 
+    // 抓取九巴全站 ETA
     async function fetchKmbStopEta(kmbStopId) {
       if (!kmbStopId) return [];
       try {
@@ -330,54 +282,7 @@
       }
     }
 
-    // 掃描九巴 112 雙向 (inbound & outbound)
-    async function debugKmb112Stops() {
-      const debugDiv = document.getElementById('kmb112Debug');
-      try {
-        const [resIn, resOut] = await Promise.all([
-          fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-stop/112/inbound/1'),
-          fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-stop/112/outbound/1')
-        ]);
-
-        const dataIn = await resIn.json();
-        const dataOut = await resOut.json();
-
-        async function processList(list, label) {
-          if (!list || list.length === 0) return `<div class="debug-sub-title">${label}：無數據</div>`;
-          
-          const promises = list.map(s => 
-            fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop/${s.stop}`)
-              .then(r => r.json())
-              .then(d => ({ seq: s.seq, stop: s.stop, name: d.data ? d.data.name_tc : '未知車站' }))
-              .catch(() => ({ seq: s.seq, stop: s.stop, name: '載入失敗' }))
-          );
-
-          const results = await Promise.all(promises);
-          let subHtml = `<div class="debug-sub-title">${label} (${results.length} 個站)</div>`;
-
-          results.forEach(item => {
-            const isTarget = item.name.includes('希慎') || item.name.includes('堅拿道') || item.name.includes('銅鑼灣') || item.name.includes('崇光');
-            subHtml += `
-              <div class="debug-row ${isTarget ? 'highlight' : ''}">
-                <div><b>[${item.seq}]</b> ${item.name}</div>
-                <div class="stop-id-tag">${item.stop}</div>
-              </div>
-            `;
-          });
-          return subHtml;
-        }
-
-        const htmlIn = await processList(dataIn.data, '往 蘇屋 方向 (Inbound)');
-        const htmlOut = await processList(dataOut.data, '往 北角百福道 方向 (Outbound)');
-
-        debugDiv.innerHTML = htmlIn + htmlOut;
-      } catch (err) {
-        debugDiv.innerHTML = '掃描失敗：' + err.message;
-      }
-    }
-
     loadAllEta();
-    debugKmb112Stops();
     setInterval(loadAllEta, 15000);
   </script>
 </body>

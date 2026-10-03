@@ -40,7 +40,6 @@
       margin-top: 14px;
       display: flex;
       justify-content: center;
-      gap: 10px;
     }
     .stop-select {
       background: white;
@@ -52,8 +51,8 @@
       font-weight: bold;
       outline: none;
       cursor: pointer;
-      width: 80%;
-      max-width: 300px;
+      width: 85%;
+      max-width: 320px;
       text-align: center;
     }
 
@@ -116,7 +115,6 @@
       <h1>Lunch 巴士到站時間表</h1>
       <p>📍 選擇巴士站觀測全路線到站時間</p>
 
-      <!-- 站點切換選單 -->
       <div class="select-container">
         <select id="stopSelector" class="stop-select" onchange="loadAllEta()">
           <option value="ALL">📍 所有車站 (一次看全部)</option>
@@ -136,14 +134,14 @@
 
   <script>
     const TARGET_STOPS = [
-      { id: '002439', name: '銅鑼灣 - 希慎廣場, 軒尼詩道' },
-      { id: '002404', name: '堅拿道巴士專用線' },
-      { id: '002383', name: '業興街, 黃竹坑道' }
+      { id: '002439', name: '銅鑼灣 - 希慎廣場, 軒尼詩道', routes: ['38', '42', '72', '72A', '77', '96', '592'] },
+      { id: '002404', name: '堅拿道巴士專用線', routes: ['38', '42', '72', '72A', '77', '96', '592'] },
+      { id: '002383', name: '業興街, 黃竹坑道', routes: ['38', '42', '72', '72A', '77', '96', '592'] }
     ];
 
-    async function fetchStopEta(stopId) {
+    async function fetchRouteEta(stopId, route) {
       try {
-        const res = await fetch(`https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/${stopId}`);
+        const res = await fetch(`https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/${stopId}/${route}`);
         if (!res.ok) return [];
         const data = await res.json();
         return (data.data || []).filter(i => i.eta);
@@ -152,18 +150,27 @@
       }
     }
 
+    async function fetchStopAllRoutes(stopObj) {
+      const promises = stopObj.routes.map(r => fetchRouteEta(stopObj.id, r));
+      const results = await Promise.all(promises);
+      let combined = [];
+      results.forEach(list => {
+        combined = combined.concat(list);
+      });
+      return combined;
+    }
+
     async function loadAllEta() {
       const container = document.getElementById('etaContainer');
       const selectedStopId = document.getElementById('stopSelector').value;
       const now = new Date();
 
       try {
-        // 根據選單篩選需要查詢的車站
         const filteredStops = selectedStopId === 'ALL' 
           ? TARGET_STOPS 
           : TARGET_STOPS.filter(s => s.id === selectedStopId);
 
-        const promises = filteredStops.map(stop => fetchStopEta(stop.id));
+        const promises = filteredStops.map(stopObj => fetchStopAllRoutes(stopObj));
         const results = await Promise.all(promises);
 
         let html = '';

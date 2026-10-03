@@ -128,16 +128,19 @@
     </div>
 
     <div class="eta-list" id="etaContainer">
-      <div class="status-msg">正在載入班次...</div>
+      <div class="status-msg">正在搜尋並載入全路線班次...</div>
     </div>
   </div>
 
   <script>
     const TARGET_STOPS = [
-      { id: '002439', name: '銅鑼灣 - 希慎廣場, 軒尼詩道', routes: ['38', '42', '72', '72A', '77', '96', '592'] },
-      { id: '002404', name: '堅拿道巴士專用線', routes: ['38', '42', '72', '72A', '77', '96', '592'] },
-      { id: '002383', name: '業興街, 黃竹坑道', routes: ['38', '42', '72', '72A', '77', '96', '592'] }
+      { id: '002439', name: '銅鑼灣 - 希慎廣場, 軒尼詩道' },
+      { id: '002404', name: '堅拿道巴士專用線' },
+      { id: '002383', name: '業興街, 黃竹坑道' }
     ];
+
+    // 熱門常用預設路線
+    const BASE_ROUTES = ['38', '42', '70', '72', '72A', '73', '75', '76', '77', '90', '96', '97', '107', '170', '171', '592', '671', 'A17'];
 
     async function fetchRouteEta(stopId, route) {
       try {
@@ -151,7 +154,7 @@
     }
 
     async function fetchStopAllRoutes(stopObj) {
-      const promises = stopObj.routes.map(r => fetchRouteEta(stopObj.id, r));
+      const promises = BASE_ROUTES.map(r => fetchRouteEta(stopObj.id, r));
       const results = await Promise.all(promises);
       let combined = [];
       results.forEach(list => {
@@ -187,7 +190,8 @@
               routeMap[item.route].push(item);
             });
 
-            const routes = Object.keys(routeMap).sort();
+            // 自然排序路線號碼 (如 38, 42, 70, 107...)
+            const routes = Object.keys(routeMap).sort((a, b) => parseInt(a) - parseInt(b));
 
             routes.forEach(routeName => {
               const matched = routeMap[routeName];

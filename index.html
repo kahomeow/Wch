@@ -113,6 +113,41 @@
     .primary-eta { font-size: 15px; font-weight: bold; color: #2b6cb0; }
     .secondary-eta { font-size: 11px; color: #718096; margin-top: 3px; }
     .status-msg { text-align: center; padding: 24px; color: #718096; font-size: 14px; }
+
+    /* 底部偵測工具區塊樣式 */
+    .debug-section {
+      background: #ffffff;
+      border-radius: 16px;
+      border: 2px dashed #e60012;
+      padding: 16px;
+      width: 100%;
+      max-width: 480px;
+      margin-top: 10px;
+    }
+    .debug-title {
+      font-size: 15px;
+      font-weight: bold;
+      color: #e60012;
+      text-align: center;
+      margin-bottom: 12px;
+    }
+    .debug-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px;
+      border-bottom: 1px solid #eee;
+      font-size: 13px;
+    }
+    .debug-row.highlight {
+      background: #ffebee;
+      font-weight: bold;
+    }
+    .stop-id-tag {
+      font-family: monospace;
+      color: #e60012;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
@@ -139,11 +174,17 @@
     </div>
   </div>
 
+  <!-- 底部 170 號線九巴站號掃描器 -->
+  <div class="debug-section">
+    <div class="debug-title">🔍 九巴 170 往沙田/九龍方向 全線站號對照表</div>
+    <div id="kmb170Debug">正在獲取九巴 170 號線官方站點...</div>
+  </div>
+
   <script>
     const TARGET_STOPS = [
-      { id: '002439', name: '銅鑼灣 - 希慎廣場, 軒尼詩道', keywords: ['希慎', '軒尼詩道', '銅鑼灣'] },
-      { id: '002404', name: '堅拿道巴士專用線', keywords: ['堅拿道', '鵝頸橋'] },
-      { id: '002383', name: '業興街, 黃竹坑道', keywords: ['業興街', '黃竹坑'] }
+      { id: '002439', name: '銅鑼灣 - 希慎廣場, 軒尼詩道' },
+      { id: '002404', name: '堅拿道巴士專用線' },
+      { id: '002383', name: '業興街, 黃竹坑道' }
     ];
 
     const ALL_ROUTES = [
@@ -152,70 +193,15 @@
       '592', '671', '671X', '973', 'A17', 'N72'
     ];
 
-    const JOINT_ROUTES = ['107', '107P', '170', '171', '171A', '671', '671X'];
-
-    // 抓取城巴 ETA
     async function fetchCtbEta(stopId, route) {
       try {
         const res = await fetch(`https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/${stopId}/${route}`);
         if (!res.ok) return [];
         const data = await res.json();
-        return (data.data || []).filter(i => i.eta).map(i => ({
-          ...i,
-          co: 'CTB',
-          dest_tc: i.dest_tc
-        }));
+        return (data.data || []).filter(i => i.eta).map(i => ({ ...i, co: 'CTB' }));
       } catch (err) {
         return [];
       }
-    }
-
-    // 用九巴 Route-ETA API，免除站號不匹配的問題
-    async function fetchKmbRouteEta(route, keywords) {
-      try {
-        // 向九巴查詢該路線（往沙田/九龍方向）
-        const [res1, res2] = await Promise.all([
-          fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route-eta/${route}/1`),
-          fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route-eta/${route}/2`)
-        ]);
-
-        let combined = [];
-        if (res1.ok) { const d1 = await res1.json(); if (d1.data) combined = combined.concat(d1.data); }
-        if (res2.ok) { const d2 = await res2.json(); if (d2.data) combined = combined.concat(d2.data); }
-
-        // 依車站名稱關鍵字過濾出目標站
-        return combined.filter(item => {
-          if (!item.eta) return false;
-          const name = item.name_tc || '';
-          return keywords.some(kw => name.includes(kw));
-        }).map(item => ({
-          ...item,
-          co: 'KMB',
-          dest_tc: item.dest_tc || '目的地'
-        }));
-      } catch (err) {
-        return [];
-      }
-    }
-
-    async function fetchStopAllRoutes(stopObj) {
-      let fetchPromises = [];
-
-      ALL_ROUTES.forEach(route => {
-        // 查城巴
-        fetchPromises.push(fetchCtbEta(stopObj.id, route));
-        // 聯營過海線：用關鍵字向九巴全線 API 查
-        if (JOINT_ROUTES.includes(route)) {
-          fetchPromises.push(fetchKmbRouteEta(route, stopObj.keywords));
-        }
-      });
-
-      const results = await Promise.all(fetchPromises);
-      let combined = [];
-      results.forEach(list => {
-        combined = combined.concat(list);
-      });
-      return combined;
     }
 
     async function loadAllEta() {
@@ -228,19 +214,23 @@
           ? TARGET_STOPS 
           : TARGET_STOPS.filter(s => s.id === selectedStopId);
 
-        const promises = filteredStops.map(stopObj => fetchStopAllRoutes(stopObj));
-        const results = await Promise.all(promises);
+        const promises = filteredStops.map(stopObj => {
+          return Promise.all(ALL_ROUTES.map(r => fetchCtbEta(stopObj.id, r)));
+        });
 
+        const results = await Promise.all(promises);
         let html = '';
 
         filteredStops.forEach((stop, index) => {
-          const rawList = results[index] || [];
+          const rawLists = results[index] || [];
+          let combined = [];
+          rawLists.forEach(list => { combined = combined.concat(list); });
 
           html += `<div class="stop-group-title">${stop.name}</div>`;
 
-          if (rawList.length > 0) {
+          if (combined.length > 0) {
             const routeMap = {};
-            rawList.forEach(item => {
+            combined.forEach(item => {
               if (!routeMap[item.route]) routeMap[item.route] = [];
               routeMap[item.route].push(item);
             });
@@ -265,16 +255,11 @@
                 secondEtaStr = `次班: ${timeStr2} (${diff2}分)`;
               }
 
-              const isKmb = bus1.co === 'KMB';
-              const companyClass = isKmb ? 'kmb' : 'ctb';
-              const tagText = isKmb ? '九巴' : '城巴';
-              const tagClass = isKmb ? 'kmb-tag' : 'ctb-tag';
-
               html += `
-                <div class="route-item ${companyClass}">
+                <div class="route-item ctb">
                   <div class="route-badge">
                     <span class="route-number">${routeName}</span>
-                    <span class="company-tag ${tagClass}">${tagText}</span>
+                    <span class="company-tag ctb-tag">城巴</span>
                   </div>
                   <div class="route-info">
                     <div class="dest-name">往 ${bus1.dest_tc || '目的地'}</div>
@@ -287,22 +272,57 @@
               `;
             });
           } else {
-            html += `
-              <div class="status-msg" style="padding: 12px; font-size: 13px;">
-                暫無即時班次資料
-              </div>
-            `;
+            html += `<div class="status-msg" style="padding: 12px; font-size: 13px;">暫無即時班次資料</div>`;
           }
         });
 
         container.innerHTML = html;
       } catch (err) {
-        console.error(err);
         container.innerHTML = `<div class="status-msg">載入失敗，請稍後重試</div>`;
       }
     }
 
+    // 掃描九巴 170 全線車站及 ID
+    async function debugKmb170Stops() {
+      const debugDiv = document.getElementById('kmb170Debug');
+      try {
+        const res = await fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-stop/170/outbound/1');
+        const data = await res.json();
+
+        if (!data.data || data.data.length === 0) {
+          debugDiv.innerHTML = '查無 170 路線車站數據';
+          return;
+        }
+
+        const stops = data.data;
+        const promises = stops.map(s => 
+          fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop/${s.stop}`)
+            .then(r => r.json())
+            .then(d => ({ seq: s.seq, stop: s.stop, name: d.data ? d.data.name_tc : '未知車站' }))
+            .catch(() => ({ seq: s.seq, stop: s.stop, name: '載入失敗' }))
+        );
+
+        const results = await Promise.all(promises);
+        let html = '';
+
+        results.forEach(item => {
+          const isTarget = item.name.includes('業興街') || item.name.includes('黃竹坑') || item.name.includes('堅拿道') || item.name.includes('希慎');
+          html += `
+            <div class="debug-row ${isTarget ? 'highlight' : ''}">
+              <div><b>[${item.seq}]</b> ${item.name}</div>
+              <div class="stop-id-tag">${item.stop}</div>
+            </div>
+          `;
+        });
+
+        debugDiv.innerHTML = html;
+      } catch (err) {
+        debugDiv.innerHTML = '掃描九巴 170 失敗：' + err.message;
+      }
+    }
+
     loadAllEta();
+    debugKmb170Stops();
     setInterval(loadAllEta, 15000);
   </script>
 </body>

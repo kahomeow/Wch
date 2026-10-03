@@ -140,21 +140,18 @@
   </div>
 
   <script>
-    // 觀測目標車站及其對應的九巴 Stop ID (用於過海線)
     const TARGET_STOPS = [
-      { id: '002439', kmbId: '', name: '銅鑼灣 - 希慎廣場, 軒尼詩道' },
-      { id: '002404', kmbId: '', name: '堅拿道巴士專用線' },
-      { id: '002383', kmbId: '001962', name: '業興街, 黃竹坑道' }
+      { id: '002439', name: '銅鑼灣 - 希慎廣場, 軒尼詩道', keywords: ['希慎', '軒尼詩道', '銅鑼灣'] },
+      { id: '002404', name: '堅拿道巴士專用線', keywords: ['堅拿道', '鵝頸橋'] },
+      { id: '002383', name: '業興街, 黃竹坑道', keywords: ['業興街', '黃竹坑'] }
     ];
 
-    // 完整的專用路線清單 (包含獨營與聯營過海線)
     const ALL_ROUTES = [
       '37A', '38', '41A', '42', '42C', '47P', '70', '70P', '72', '72A', '73', '75', '76', '77', 
       '90', '90B', '96', '97', '99', '99X', '107', '107P', '170', '171', '171A', 
       '592', '671', '671X', '973', 'A17', 'N72'
     ];
 
-    // 聯營路線 (需要加查九巴 API)
     const JOINT_ROUTES = ['107', '107P', '170', '171', '171A', '671', '671X'];
 
     // 抓取城巴 ETA
@@ -163,23 +160,38 @@
         const res = await fetch(`https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/${stopId}/${route}`);
         if (!res.ok) return [];
         const data = await res.json();
-        return (data.data || []).filter(i => i.eta).map(i => ({ ...i, co: 'CTB' }));
+        return (data.data || []).filter(i => i.eta).map(i => ({
+          ...i,
+          co: 'CTB',
+          dest_tc: i.dest_tc
+        }));
       } catch (err) {
         return [];
       }
     }
 
-    // 抓取九巴 ETA (針對聯營過海線)
-    async function fetchKmbEta(kmbStopId, route) {
-      if (!kmbStopId) return [];
+    // 用九巴 Route-ETA API，免除站號不匹配的問題
+    async function fetchKmbRouteEta(route, keywords) {
       try {
-        const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${kmbStopId}`);
-        if (!res.ok) return [];
-        const data = await res.json();
-        return (data.data || []).filter(i => i.route === route && i.eta).map(i => ({
-          ...i,
+        // 向九巴查詢該路線（往沙田/九龍方向）
+        const [res1, res2] = await Promise.all([
+          fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route-eta/${route}/1`),
+          fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route-eta/${route}/2`)
+        ]);
+
+        let combined = [];
+        if (res1.ok) { const d1 = await res1.json(); if (d1.data) combined = combined.concat(d1.data); }
+        if (res2.ok) { const d2 = await res2.json(); if (d2.data) combined = combined.concat(d2.data); }
+
+        // 依車站名稱關鍵字過濾出目標站
+        return combined.filter(item => {
+          if (!item.eta) return false;
+          const name = item.name_tc || '';
+          return keywords.some(kw => name.includes(kw));
+        }).map(item => ({
+          ...item,
           co: 'KMB',
-          dest_tc: i.dest_tc
+          dest_tc: item.dest_tc || '目的地'
         }));
       } catch (err) {
         return [];
@@ -192,9 +204,9 @@
       ALL_ROUTES.forEach(route => {
         // 查城巴
         fetchPromises.push(fetchCtbEta(stopObj.id, route));
-        // 如果是聯營過海線，加查九巴
-        if (JOINT_ROUTES.includes(route) && stopObj.kmbId) {
-          fetchPromises.push(fetchKmbEta(stopObj.kmbId, route));
+        // 聯營過海線：用關鍵字向九巴全線 API 查
+        if (JOINT_ROUTES.includes(route)) {
+          fetchPromises.push(fetchKmbRouteEta(route, stopObj.keywords));
         }
       });
 
@@ -233,12 +245,10 @@
               routeMap[item.route].push(item);
             });
 
-            // 路線名稱自然排序 (數字/字母組合)
             const routes = Object.keys(routeMap).sort((a, b) => parseInt(a) - parseInt(b));
 
             routes.forEach(routeName => {
               const matched = routeMap[routeName];
-              // 依實際到站時間先後排序
               matched.sort((a, b) => new Date(a.eta) - new Date(b.eta));
 
               const bus1 = matched[0];
